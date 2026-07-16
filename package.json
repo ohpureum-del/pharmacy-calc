@@ -1,0 +1,88 @@
+{
+  "name": "budjet",
+  "private": true,
+  "version": "0.0.0",
+  "description": "약국 고정비와 순이익을 데스크탑에서 관리하는 정산 앱",
+  "author": "TRAE",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "productName": "약국 경영정산",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "check": "tsc -b --noEmit",
+    "test": "vitest run",
+    "electron:start": "electron .",
+    "icon:build": "node scripts/generate-icon.mjs",
+    "desktop:dir": "npm run icon:build && npm run build && electron-builder --dir",
+    "desktop:dist": "npm run icon:build && npm run build && electron-builder --win nsis",
+    "desktop:portable": "npm run icon:build && npm run build && electron-builder --win portable"
+  },
+  "dependencies": {
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.511.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.3.0",
+    "tailwind-merge": "^3.0.2",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.25.0",
+    "@types/node": "^22.15.30",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.4.1",
+    "autoprefixer": "^10.4.21",
+    "babel-plugin-react-dev-locator": "^1.0.6",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "eslint": "^9.25.0",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "eslint-plugin-react-refresh": "^0.4.19",
+    "electron": "^31.7.7",
+    "electron-builder": "^24.13.3",
+    "globals": "^16.0.0",
+    "png-to-ico": "^2.1.8",
+    "sharp": "^0.34.4",
+    "typescript": "~5.8.3",
+    "typescript-eslint": "^8.30.1",
+    "vite": "^6.3.5",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.2.4"
+  },
+  "build": {
+    "appId": "com.budjet.desktop",
+    "productName": "약국 경영정산",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "asar": true,
+    "win": {
+      "icon": "build/icon.ico",
+      "artifactName": "약국-경영정산-설치-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "약국 경영정산"
+    },
+    "portable": {
+      "artifactName": "약국-경영정산-포터블-${version}.${ext}"
+    }
+  },
+  "allowScripts": {
+    "electron@31.7.7": true,
+    "esbuild@0.25.12": true
+  }
+}
