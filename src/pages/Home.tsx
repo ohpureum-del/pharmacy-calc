@@ -1,5 +1,5 @@
-import { AppWindow } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { AppWindow, Download, Upload } from "lucide-react";
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from "react";
 import CelebrationOverlay from "@/components/CelebrationOverlay";
 import EntriesTable from "@/components/EntriesTable";
 import MonthlyFinancePanel from "@/components/MonthlyFinancePanel";
@@ -12,6 +12,7 @@ import {
   createEntryDraft,
   DEFAULT_MONTHLY_META,
   formatCurrency,
+  formatNumber,
   getEntryProfit,
   getMonthLabel,
   getMonthKey,
@@ -45,6 +46,10 @@ export default function Home() {
   const [showCelebration, setShowCelebration] = useState(false);
   const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalledApp, setIsInstalledApp] = useState(false);
+  const [backupFeedbackMessage, setBackupFeedbackMessage] = useState<string | null>(null);
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const restoreInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     initialize();
@@ -91,6 +96,11 @@ export default function Home() {
   const months = useMemo(() => toMonthOptions(entries, currentMonth), [entries, currentMonth]);
   const currentMonthMeta = monthlyMetaByMonth[currentMonth] ?? DEFAULT_MONTHLY_META;
   const selectedFinanceMeta = monthlyMetaByMonth[selectedFinanceMonth] ?? DEFAULT_MONTHLY_META;
+  const selectedMonthSummary = useMemo(
+    () => calculateMonthSummary(entries, settings, selectedMonth),
+    [entries, settings, selectedMonth],
+  );
+  const selectedMonthMeta = monthlyMetaByMonth[selectedMonth] ?? DEFAULT_MONTHLY_META;
 
   const handleSettingsSubmit = (nextSettings: typeof settings) => {
     updateSettings(nextSettings);
@@ -134,6 +144,23 @@ export default function Home() {
     window.URL.revokeObjectURL(url);
   };
 
+  const handleBackupClick = async () => {
+    setIsBackingUp(true);
+    setBackupFeedbackMessage(null);
+
+    try {
+      await handleBackup();
+      setBackupFeedbackMessage("백업 파일 저장 창이 열렸습니다. 원하는 폴더를 선택해 저장해 주세요.");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+      setBackupFeedbackMessage(error instanceof Error ? error.message : "백업 파일 저장을 완료하지 못했습니다.");
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
   const handleRestore = async (file: File) => {
     const text = await file.text();
     let parsed: unknown;
@@ -153,6 +180,61 @@ export default function Home() {
     setEditingId(null);
     setSelectedMonth(currentMonth);
     setSelectedFinanceMonth(currentMonth);
+  };
+
+  const handleClickRestore = () => {
+    if (window.showOpenFilePicker) {
+      void (async () => {
+        setIsRestoring(true);
+        setBackupFeedbackMessage(null);
+
+        try {
+          const [fileHandle] = await window.showOpenFilePicker({
+            id: "pharmacy-backup-open",
+            types: [
+              {
+                description: "약국 경영정산 백업 파일",
+                accept: {
+                  "application/json": [".json"],
+                },
+              },
+            ],
+          });
+
+          const file = await fileHandle.getFile();
+          await handleRestore(file);
+          setBackupFeedbackMessage("선택한 백업 파일을 불러왔습니다.");
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return;
+          }
+          setBackupFeedbackMessage(error instanceof Error ? error.message : "백업 파일을 불러오지 못했습니다.");
+        } finally {
+          setIsRestoring(false);
+        }
+      })();
+      return;
+    }
+
+    restoreInputRef.current?.click();
+  };
+
+  const handleRestoreFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsRestoring(true);
+    setBackupFeedbackMessage(null);
+
+    try {
+      await handleRestore(file);
+      setBackupFeedbackMessage("백업 데이터를 불러왔습니다.");
+    } catch (error) {
+      setBackupFeedbackMessage(error instanceof Error ? error.message : "백업 파일을 불러오지 못했습니다.");
+    } finally {
+      event.target.value = "";
+      setIsRestoring(false);
+    }
   };
 
   const handleInstallApp = async () => {
@@ -240,6 +322,16 @@ export default function Home() {
     { label: "일반약매출", value: formatCurrency(todayOtcSales) },
     { label: "일반약순이익", value: formatCurrency(todayOtcProfit) },
   ];
+  const selectedMonthCards = [
+    { label: "월 총 순이익", value: formatCurrency(selectedMonthSummary.accumulatedProfit) },
+    { label: "조제료 합계", value: formatCurrency(selectedMonthSummary.totalDispensingFee) },
+    { label: "조제건수 합계", value: `${formatNumber(selectedMonthSummary.totalPrescriptionCount)}건` },
+    { label: "일반약 매출 합계", value: formatCurrency(selectedMonthSummary.totalOtcSales) },
+    { label: "일반약 순이익 합계", value: formatCurrency(selectedMonthSummary.totalOtcProfit) },
+    { label: "일반약 매입 합계", value: formatCurrency(selectedMonthMeta.otcPurchaseAmount) },
+    { label: "도매상 결제예정", value: formatCurrency(selectedMonthMeta.wholesalerBalance) },
+    { label: "입력 일수", value: `${formatNumber(selectedMonthSummary.entryCount)}일` },
+  ];
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(20,184,166,0.2),_transparent_24%),radial-gradient(circle_at_top_right,_rgba(148,163,184,0.14),_transparent_22%),linear-gradient(180deg,_#f8fffd_0%,_#f8fafc_42%,_#eef6f5_100%)] pb-10">
@@ -272,7 +364,35 @@ export default function Home() {
                     : "설치 버튼이 안 보이면 Edge/Chrome 메뉴에서 `앱 설치` 또는 `바탕화면에 추가`를 눌러 주세요."}
                 </div>
               )}
+              <button
+                type="button"
+                onClick={() => void handleBackupClick()}
+                disabled={isBackingUp}
+                className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3.5 py-2 text-xs font-semibold text-slate-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Download className="h-4 w-4" />
+                {isBackingUp ? "저장 준비 중..." : "백업 저장"}
+              </button>
+              <button
+                type="button"
+                onClick={handleClickRestore}
+                disabled={isRestoring}
+                className="inline-flex items-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-3.5 py-2 text-xs font-semibold text-teal-700 transition hover:bg-teal-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <Upload className="h-4 w-4" />
+                {isRestoring ? "불러오는 중..." : "백업 불러오기"}
+              </button>
             </div>
+            <input
+              ref={restoreInputRef}
+              type="file"
+              accept="application/json,.json"
+              onChange={handleRestoreFileChange}
+              className="hidden"
+            />
+            {backupFeedbackMessage ? (
+              <p className="mt-3 text-xs font-medium text-slate-600">{backupFeedbackMessage}</p>
+            ) : null}
           </div>
 
           <section className="mt-6 rounded-[28px] border border-slate-200/80 bg-white/90 p-5 shadow-xl shadow-slate-900/5 backdrop-blur">
@@ -328,8 +448,6 @@ export default function Home() {
           <SettingsPanel
             settings={settings}
             onSave={handleSettingsSubmit}
-            onBackup={handleBackup}
-            onRestore={handleRestore}
           />
         </div>
         <div className="mt-4">
@@ -340,6 +458,42 @@ export default function Home() {
             onMonthChange={setSelectedFinanceMonth}
             onSave={(meta) => handleMonthlyMetaSave(selectedFinanceMonth, meta)}
           />
+        </div>
+        <div className="mt-4">
+          <section className="rounded-[28px] border border-slate-200/80 bg-white/90 p-5 shadow-xl shadow-slate-900/5 backdrop-blur">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-semibold tracking-tight text-slate-900">월별 합산 요약</h2>
+                <p className="mt-1.5 text-xs leading-5 text-slate-600">
+                  원하는 월을 고르면 조제료, 조제건수, 일반약 매입/순이익까지 카드로 한눈에 볼 수 있습니다.
+                </p>
+              </div>
+
+              <label className="block min-w-44">
+                <span className="text-[11px] font-medium text-slate-500">조회 월</span>
+                <select
+                  value={selectedMonth}
+                  onChange={(event) => setSelectedMonth(event.target.value)}
+                  className="mt-1.5 w-full rounded-2xl border border-slate-200 bg-slate-50 px-3.5 py-2.5 text-sm text-slate-900 outline-none transition focus:border-teal-400 focus:bg-white"
+                >
+                  {months.map((monthOption) => (
+                    <option key={monthOption} value={monthOption}>
+                      {getMonthLabel(monthOption)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              {selectedMonthCards.map((card) => (
+                <div key={card.label} className="rounded-2xl bg-slate-50 p-3.5">
+                  <p className="text-xs text-slate-500">{card.label}</p>
+                  <p className="mt-1.5 text-lg font-semibold tracking-tight text-slate-900">{card.value}</p>
+                </div>
+              ))}
+            </div>
+          </section>
         </div>
         <div className="mt-4">
           <EntriesTable

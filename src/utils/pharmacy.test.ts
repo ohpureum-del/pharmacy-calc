@@ -84,6 +84,29 @@ describe("pharmacy calculations", () => {
         otcPurchaseAmount: "3200000",
         wholesalerBalance: 1800000.4,
       },
+      "2026-08": {
+        otcPurchaseItems: [
+          {
+            id: "a",
+            company: "A제약",
+            amount: 1200000.4,
+            item: "감기약",
+          },
+          {
+            id: "b",
+            company: "B제약",
+            amount: 800000,
+            item: "소화제",
+          },
+        ],
+        wholesalerPaymentItems: [
+          {
+            id: "c",
+            wholesaler: "도매상1",
+            amount: 500000.7,
+          },
+        ],
+      },
       invalid: {
         otcPurchaseAmount: 999,
         wholesalerBalance: 999,
@@ -91,8 +114,48 @@ describe("pharmacy calculations", () => {
     });
 
     expect(monthlyMeta["2026-07"]).toEqual({
+      otcPurchaseItems: [
+        {
+          id: "migrated_otc_purchase",
+          company: "기존 입력",
+          amount: 3200000,
+          item: "이전 데이터",
+        },
+      ],
+      wholesalerPaymentItems: [
+        {
+          id: "migrated_wholesaler_payment",
+          wholesaler: "기존 입력",
+          amount: 1800000,
+        },
+      ],
       otcPurchaseAmount: 3200000,
       wholesalerBalance: 1800000,
+    });
+    expect(monthlyMeta["2026-08"]).toEqual({
+      otcPurchaseItems: [
+        {
+          id: "a",
+          company: "A제약",
+          amount: 1200000,
+          item: "감기약",
+        },
+        {
+          id: "b",
+          company: "B제약",
+          amount: 800000,
+          item: "소화제",
+        },
+      ],
+      wholesalerPaymentItems: [
+        {
+          id: "c",
+          wholesaler: "도매상1",
+          amount: 500001,
+        },
+      ],
+      otcPurchaseAmount: 2000000,
+      wholesalerBalance: 500001,
     });
     expect(monthlyMeta.invalid).toBeUndefined();
   });

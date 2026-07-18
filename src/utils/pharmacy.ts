@@ -30,7 +30,22 @@ export type PharmacyEntryDraft = {
   prescriptionCount?: number;
 };
 
+export type OtcPurchaseItem = {
+  id: string;
+  company: string;
+  amount: number;
+  item: string;
+};
+
+export type WholesalerPaymentItem = {
+  id: string;
+  wholesaler: string;
+  amount: number;
+};
+
 export type PharmacyMonthlyMeta = {
+  otcPurchaseItems: OtcPurchaseItem[];
+  wholesalerPaymentItems: WholesalerPaymentItem[];
   otcPurchaseAmount: number;
   wholesalerBalance: number;
 };
@@ -73,6 +88,8 @@ export const DEFAULT_SETTINGS: PharmacySettings = {
 };
 
 export const DEFAULT_MONTHLY_META: PharmacyMonthlyMeta = {
+  otcPurchaseItems: [],
+  wholesalerPaymentItems: [],
   otcPurchaseAmount: 0,
   wholesalerBalance: 0,
 };
@@ -98,10 +115,69 @@ export function getMonthKey(date: string) {
   return date.slice(0, 7);
 }
 
+function normalizeOtcPurchaseItems(raw: unknown) {
+  if (!Array.isArray(raw)) return [] as OtcPurchaseItem[];
+
+  return raw
+    .filter((item): item is Partial<OtcPurchaseItem> => Boolean(item) && typeof item === "object")
+    .map((item, index) => ({
+      id: String(item.id ?? `otc_purchase_${Date.now()}_${index}`),
+      company: String(item.company ?? "").trim(),
+      amount: Math.max(0, Math.round(Number(item.amount ?? 0))),
+      item: String(item.item ?? "").trim(),
+    }))
+    .filter((item) => item.company || item.item || item.amount > 0);
+}
+
+function normalizeWholesalerPaymentItems(raw: unknown) {
+  if (!Array.isArray(raw)) return [] as WholesalerPaymentItem[];
+
+  return raw
+    .filter((item): item is Partial<WholesalerPaymentItem> => Boolean(item) && typeof item === "object")
+    .map((item, index) => ({
+      id: String(item.id ?? `wholesaler_payment_${Date.now()}_${index}`),
+      wholesaler: String(item.wholesaler ?? "").trim(),
+      amount: Math.max(0, Math.round(Number(item.amount ?? 0))),
+    }))
+    .filter((item) => item.wholesaler || item.amount > 0);
+}
+
 export function normalizeMonthlyMeta(meta?: Partial<PharmacyMonthlyMeta> | null): PharmacyMonthlyMeta {
+  const otcPurchaseItems = normalizeOtcPurchaseItems(meta?.otcPurchaseItems);
+  const wholesalerPaymentItems = normalizeWholesalerPaymentItems(meta?.wholesalerPaymentItems);
+  const legacyOtcPurchaseAmount = Math.max(0, Math.round(Number(meta?.otcPurchaseAmount || 0)));
+  const legacyWholesalerBalance = Math.max(0, Math.round(Number(meta?.wholesalerBalance || 0)));
+  const normalizedOtcPurchaseItems =
+    otcPurchaseItems.length > 0
+      ? otcPurchaseItems
+      : legacyOtcPurchaseAmount > 0
+        ? [
+            {
+              id: "migrated_otc_purchase",
+              company: "기존 입력",
+              amount: legacyOtcPurchaseAmount,
+              item: "이전 데이터",
+            },
+          ]
+        : [];
+  const normalizedWholesalerPaymentItems =
+    wholesalerPaymentItems.length > 0
+      ? wholesalerPaymentItems
+      : legacyWholesalerBalance > 0
+        ? [
+            {
+              id: "migrated_wholesaler_payment",
+              wholesaler: "기존 입력",
+              amount: legacyWholesalerBalance,
+            },
+          ]
+        : [];
+
   return {
-    otcPurchaseAmount: Math.max(0, Math.round(Number(meta?.otcPurchaseAmount || 0))),
-    wholesalerBalance: Math.max(0, Math.round(Number(meta?.wholesalerBalance || 0))),
+    otcPurchaseItems: normalizedOtcPurchaseItems,
+    wholesalerPaymentItems: normalizedWholesalerPaymentItems,
+    otcPurchaseAmount: normalizedOtcPurchaseItems.reduce((sum, item) => sum + item.amount, 0),
+    wholesalerBalance: normalizedWholesalerPaymentItems.reduce((sum, item) => sum + item.amount, 0),
   };
 }
 
