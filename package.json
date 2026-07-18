@@ -10,15 +10,16 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "build:desktop": "tsc -b && vite build --mode desktop",
     "lint": "eslint .",
     "preview": "vite preview",
     "check": "tsc -b --noEmit",
     "test": "vitest run",
     "electron:start": "electron .",
     "icon:build": "node scripts/generate-icon.mjs",
-    "desktop:dir": "npm run icon:build && npm run build && electron-builder --dir",
-    "desktop:dist": "npm run icon:build && npm run build && electron-builder --win nsis",
-    "desktop:portable": "npm run icon:build && npm run build && electron-builder --win portable"
+    "desktop:dir": "npm run icon:build && npm run build:desktop && electron-builder --dir",
+    "desktop:dist": "npm run icon:build && npm run build:desktop && electron-builder --win nsis",
+    "desktop:portable": "npm run icon:build && npm run build:desktop && electron-builder --win portable"
   },
   "dependencies": {
     "clsx": "^2.1.1",

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   calculateMonthSummary,
   getMarginRate,
+  normalizeMonthlyMetaRecord,
   type PharmacyEntry,
   type PharmacySettings,
 } from "@/utils/pharmacy";
@@ -75,5 +76,24 @@ describe("pharmacy calculations", () => {
     expect(summary.remainingFixedCost).toBe(0);
     expect(summary.overflowNetProfit).toBe(150000);
     expect(summary.progressRate).toBe(115);
+  });
+
+  it("normalizes monthly purchase and balance data by month", () => {
+    const monthlyMeta = normalizeMonthlyMetaRecord({
+      "2026-07": {
+        otcPurchaseAmount: "3200000",
+        wholesalerBalance: 1800000.4,
+      },
+      invalid: {
+        otcPurchaseAmount: 999,
+        wholesalerBalance: 999,
+      },
+    });
+
+    expect(monthlyMeta["2026-07"]).toEqual({
+      otcPurchaseAmount: 3200000,
+      wholesalerBalance: 1800000,
+    });
+    expect(monthlyMeta.invalid).toBeUndefined();
   });
 });

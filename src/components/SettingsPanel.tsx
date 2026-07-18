@@ -1,9 +1,12 @@
-import { type FocusEvent, type KeyboardEvent, useEffect, useState } from "react";
+import { Download, Upload } from "lucide-react";
+import { type ChangeEvent, type FocusEvent, type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { formatCurrency, getMonthlyFixedCost, type FixedCostItem, type PharmacySettings } from "@/utils/pharmacy";
 
 type SettingsPanelProps = {
   settings: PharmacySettings;
   onSave: (settings: PharmacySettings) => void;
+  onBackup: () => Promise<void> | void;
+  onRestore: (file: File) => Promise<void>;
 };
 
 type BaseCostField = {
@@ -20,12 +23,16 @@ function getEditableNumberValue(value: number) {
   return value === 0 ? "" : value;
 }
 
-export default function SettingsPanel({ settings, onSave }: SettingsPanelProps) {
+export default function SettingsPanel({ settings, onSave, onBackup, onRestore }: SettingsPanelProps) {
   const [laborCost, setLaborCost] = useState(settings.laborCost);
   const [rentManagementCost, setRentManagementCost] = useState(settings.rentManagementCost);
   const [otherFixedCost, setOtherFixedCost] = useState(settings.otherFixedCost);
   const [extraFixedCosts, setExtraFixedCosts] = useState<FixedCostItem[]>(settings.extraFixedCosts);
   const [pendingExtraFixedCosts, setPendingExtraFixedCosts] = useState<FixedCostItem[]>([]);
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
+  const restoreInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     setLaborCost(settings.laborCost);
@@ -107,6 +114,78 @@ export default function SettingsPanel({ settings, onSave }: SettingsPanelProps) 
     const targetId = event.currentTarget.dataset.itemId;
     if (!targetId) return;
     confirmPendingExtraFixedCost(targetId);
+  };
+
+  const handleBackupClick = async () => {
+    setIsBackingUp(true);
+    setFeedbackMessage(null);
+
+    try {
+      await onBackup();
+      setFeedbackMessage("백업 파일 저장 창이 열렸습니다. `budjet` 폴더를 선택해 저장해 주세요.");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+      setFeedbackMessage(error instanceof Error ? error.message : "백업 파일 저장을 완료하지 못했습니다.");
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
+  const handleClickRestore = () => {
+    if (window.showOpenFilePicker) {
+      void (async () => {
+        setIsRestoring(true);
+        setFeedbackMessage(null);
+
+        try {
+          const [fileHandle] = await window.showOpenFilePicker({
+            id: "pharmacy-backup-open",
+            types: [
+              {
+                description: "약국 경영정산 백업 파일",
+                accept: {
+                  "application/json": [".json"],
+                },
+              },
+            ],
+          });
+
+          const file = await fileHandle.getFile();
+          await onRestore(file);
+          setFeedbackMessage("선택한 백업 파일을 불러왔습니다.");
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return;
+          }
+          setFeedbackMessage(error instanceof Error ? error.message : "백업 파일을 불러오지 못했습니다.");
+        } finally {
+          setIsRestoring(false);
+        }
+      })();
+      return;
+    }
+
+    restoreInputRef.current?.click();
+  };
+
+  const handleRestoreFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setIsRestoring(true);
+    setFeedbackMessage(null);
+
+    try {
+      await onRestore(file);
+      setFeedbackMessage("백업 데이터를 불러왔습니다.");
+    } catch (error) {
+      setFeedbackMessage(error instanceof Error ? error.message : "백업 파일을 불러오지 못했습니다.");
+    } finally {
+      event.target.value = "";
+      setIsRestoring(false);
+    }
   };
 
   return (
@@ -204,6 +283,45 @@ export default function SettingsPanel({ settings, onSave }: SettingsPanelProps) 
       <div className="mt-4 rounded-3xl border border-slate-200 bg-white px-4 py-3 text-right">
         <p className="text-[11px] font-medium text-slate-400">월 고정비 합계</p>
         <p className="mt-1 text-lg font-medium tracking-tight text-slate-500">{formatCurrency(totalFixedCost)}</p>
+      </div>
+
+      <div className="mt-4 rounded-3xl border border-slate-200 bg-slate-50/70 p-3.5">
+        <div className="flex flex-wrap items-center justify-between gap-2.5">
+          <div>
+            <p className="text-xs font-medium text-slate-700">데이터 백업 / 복원</p>
+            <p className="mt-1 text-[11px] text-slate-500">
+              입력 기록과 고정비 설정, 월별 매입/잔고를 한 번에 저장하고 다시 불러올 수 있습니다.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void handleBackupClick()}
+              disabled={isBackingUp}
+              className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
+            >
+              <Download className="h-4 w-4" />
+              {isBackingUp ? "저장 준비 중..." : "백업 저장"}
+            </button>
+            <button
+              type="button"
+              onClick={handleClickRestore}
+              disabled={isRestoring}
+              className="inline-flex items-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-700 transition hover:bg-teal-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              <Upload className="h-4 w-4" />
+              {isRestoring ? "불러오는 중..." : "백업 불러오기"}
+            </button>
+          </div>
+        </div>
+        <input
+          ref={restoreInputRef}
+          type="file"
+          accept="application/json,.json"
+          onChange={handleRestoreFileChange}
+          className="hidden"
+        />
+        {feedbackMessage ? <p className="mt-2 text-[11px] font-medium text-slate-600">{feedbackMessage}</p> : null}
       </div>
     </section>
   );

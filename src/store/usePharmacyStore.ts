@@ -1,26 +1,44 @@
 import { create } from "zustand";
 import {
   calculateMonthSummary,
+  normalizeEntries,
+  normalizeMonthlyMeta,
+  normalizeMonthlyMetaRecord,
+  normalizeSettings,
   DEFAULT_SETTINGS,
   getMonthKey,
   getTodayDateString,
   sortEntriesByDate,
   toEntryPayload,
+  type PharmacyBackupData,
   type PharmacyEntry,
   type PharmacyEntryDraft,
+  type PharmacyMonthlyMeta,
+  type PharmacyMonthlyMetaRecord,
   type PharmacySettings,
 } from "@/utils/pharmacy";
-import { loadEntries, loadSettings, saveEntries, saveSettings } from "@/utils/storage";
+import {
+  loadEntries,
+  loadMonthlyMeta,
+  loadSettings,
+  saveEntries,
+  saveMonthlyMeta,
+  saveSettings,
+} from "@/utils/storage";
 
 type PharmacyState = {
   settings: PharmacySettings;
   entries: PharmacyEntry[];
+  monthlyMetaByMonth: PharmacyMonthlyMetaRecord;
   celebrationTick: number;
   lastSavedAt: string | null;
   initialize: () => void;
   updateSettings: (settings: PharmacySettings) => void;
+  updateMonthlyMeta: (month: string, meta: PharmacyMonthlyMeta) => void;
   saveEntry: (draft: PharmacyEntryDraft, editingId?: string | null) => PharmacyEntry;
   deleteEntry: (id: string) => void;
+  exportBackup: () => PharmacyBackupData;
+  importBackup: (backup: PharmacyBackupData) => void;
 };
 
 const currentMonth = getMonthKey(getTodayDateString());
@@ -28,29 +46,36 @@ const currentMonth = getMonthKey(getTodayDateString());
 export const usePharmacyStore = create<PharmacyState>((set, get) => ({
   settings: DEFAULT_SETTINGS,
   entries: [],
+  monthlyMetaByMonth: {},
   celebrationTick: 0,
   lastSavedAt: null,
 
   initialize: () => {
     const settings = loadSettings();
     const entries = sortEntriesByDate(loadEntries());
-    set({ settings, entries });
+    const monthlyMetaByMonth = loadMonthlyMeta();
+    set({ settings, entries, monthlyMetaByMonth });
   },
 
   updateSettings: (settings) => {
-    const normalized = {
-      laborCost: Math.max(0, Math.round(settings.laborCost || 0)),
-      rentManagementCost: Math.max(0, Math.round(settings.rentManagementCost || 0)),
-      otherFixedCost: Math.max(0, Math.round(settings.otherFixedCost || 0)),
-      extraFixedCosts: (settings.extraFixedCosts ?? []).map((item) => ({
-        id: item.id,
-        label: item.label.trim(),
-        amount: Math.max(0, Math.round(item.amount || 0)),
-      })),
-    };
+    const normalized = normalizeSettings(settings);
 
     saveSettings(normalized);
     set({ settings: normalized, lastSavedAt: new Date().toISOString() });
+  },
+
+  updateMonthlyMeta: (month, meta) => {
+    const normalizedMeta = normalizeMonthlyMeta(meta);
+    const nextMonthlyMetaByMonth = {
+      ...get().monthlyMetaByMonth,
+      [month]: normalizedMeta,
+    };
+
+    saveMonthlyMeta(nextMonthlyMetaByMonth);
+    set({
+      monthlyMetaByMonth: nextMonthlyMetaByMonth,
+      lastSavedAt: new Date().toISOString(),
+    });
   },
 
   saveEntry: (draft, editingId) => {
@@ -83,5 +108,34 @@ export const usePharmacyStore = create<PharmacyState>((set, get) => ({
     const nextEntries = get().entries.filter((entry) => entry.id !== id);
     saveEntries(nextEntries);
     set({ entries: nextEntries, lastSavedAt: new Date().toISOString() });
+  },
+
+  exportBackup: () => {
+    const { settings, entries, monthlyMetaByMonth } = get();
+
+    return {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      settings,
+      entries,
+      monthlyMetaByMonth,
+    };
+  },
+
+  importBackup: (backup) => {
+    const normalizedSettings = normalizeSettings(backup?.settings);
+    const normalizedEntries = sortEntriesByDate(normalizeEntries(backup?.entries));
+    const normalizedMonthlyMetaByMonth = normalizeMonthlyMetaRecord(backup?.monthlyMetaByMonth);
+
+    saveSettings(normalizedSettings);
+    saveEntries(normalizedEntries);
+    saveMonthlyMeta(normalizedMonthlyMetaByMonth);
+
+    set({
+      settings: normalizedSettings,
+      entries: normalizedEntries,
+      monthlyMetaByMonth: normalizedMonthlyMetaByMonth,
+      lastSavedAt: new Date().toISOString(),
+    });
   },
 }));

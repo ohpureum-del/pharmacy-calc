@@ -30,6 +30,21 @@ export type PharmacyEntryDraft = {
   prescriptionCount?: number;
 };
 
+export type PharmacyMonthlyMeta = {
+  otcPurchaseAmount: number;
+  wholesalerBalance: number;
+};
+
+export type PharmacyMonthlyMetaRecord = Record<string, PharmacyMonthlyMeta>;
+
+export type PharmacyBackupData = {
+  version: number;
+  exportedAt: string;
+  settings: PharmacySettings;
+  entries: PharmacyEntry[];
+  monthlyMetaByMonth: PharmacyMonthlyMetaRecord;
+};
+
 export type MonthSummary = {
   month: string;
   fixedCostGoal: number;
@@ -47,6 +62,7 @@ export type MonthSummary = {
 export const STORAGE_KEYS = {
   settings: "pharmacy-finance-settings",
   entries: "pharmacy-finance-entries",
+  monthlyMeta: "pharmacy-finance-monthly-meta",
 } as const;
 
 export const DEFAULT_SETTINGS: PharmacySettings = {
@@ -54,6 +70,11 @@ export const DEFAULT_SETTINGS: PharmacySettings = {
   rentManagementCost: 0,
   otherFixedCost: 4500000,
   extraFixedCosts: [],
+};
+
+export const DEFAULT_MONTHLY_META: PharmacyMonthlyMeta = {
+  otcPurchaseAmount: 0,
+  wholesalerBalance: 0,
 };
 
 export const currencyFormatter = new Intl.NumberFormat("ko-KR");
@@ -75,6 +96,43 @@ export function getTodayDateString() {
 
 export function getMonthKey(date: string) {
   return date.slice(0, 7);
+}
+
+export function normalizeMonthlyMeta(meta?: Partial<PharmacyMonthlyMeta> | null): PharmacyMonthlyMeta {
+  return {
+    otcPurchaseAmount: Math.max(0, Math.round(Number(meta?.otcPurchaseAmount || 0))),
+    wholesalerBalance: Math.max(0, Math.round(Number(meta?.wholesalerBalance || 0))),
+  };
+}
+
+export function normalizeMonthlyMetaRecord(raw: unknown): PharmacyMonthlyMetaRecord {
+  if (!raw || typeof raw !== "object") return {};
+
+  return Object.entries(raw as Record<string, Partial<PharmacyMonthlyMeta>>).reduce<PharmacyMonthlyMetaRecord>(
+    (acc, [month, meta]) => {
+      if (!/^\d{4}-\d{2}$/.test(month)) return acc;
+      acc[month] = normalizeMonthlyMeta(meta);
+      return acc;
+    },
+    {},
+  );
+}
+
+export function normalizeSettings(settings?: Partial<PharmacySettings> & { monthlyFixedCost?: number }) {
+  const migratedTotal = Number(settings?.monthlyFixedCost ?? DEFAULT_SETTINGS.otherFixedCost);
+
+  return {
+    laborCost: Math.max(0, Math.round(Number(settings?.laborCost ?? 0))),
+    rentManagementCost: Math.max(0, Math.round(Number(settings?.rentManagementCost ?? 0))),
+    otherFixedCost: Math.max(0, Math.round(Number(settings?.otherFixedCost ?? migratedTotal))),
+    extraFixedCosts: Array.isArray(settings?.extraFixedCosts)
+      ? settings.extraFixedCosts.map((item) => ({
+          id: String(item.id),
+          label: String(item.label ?? "").trim(),
+          amount: Math.max(0, Math.round(Number(item.amount ?? 0))),
+        }))
+      : [],
+  };
 }
 
 export function getMonthLabel(month: string) {
@@ -189,6 +247,30 @@ export function toEntryPayload(
     createdAt: existing?.createdAt ?? now,
     updatedAt: now,
   };
+}
+
+export function normalizeEntries(raw: unknown): PharmacyEntry[] {
+  if (!Array.isArray(raw)) return [];
+
+  return raw
+    .filter((entry): entry is Partial<PharmacyEntry> => Boolean(entry) && typeof entry === "object")
+    .filter((entry) => typeof entry.date === "string")
+    .map((entry) => {
+      const now = new Date().toISOString();
+      return {
+        id: String(entry.id ?? `entry_${entry.date}`),
+        date: String(entry.date),
+        dispensingFee: Math.max(0, Math.round(Number(entry.dispensingFee || 0))),
+        otcSales: Math.max(0, Math.round(Number(entry.otcSales || 0))),
+        otcProfit: Math.max(0, Math.round(Number(entry.otcProfit || 0))),
+        prescriptionCount:
+          entry.prescriptionCount && Number(entry.prescriptionCount) > 0
+            ? Math.round(Number(entry.prescriptionCount))
+            : undefined,
+        createdAt: typeof entry.createdAt === "string" ? entry.createdAt : now,
+        updatedAt: typeof entry.updatedAt === "string" ? entry.updatedAt : now,
+      };
+    });
 }
 
 export function toDraftFromEntry(entry: PharmacyEntry): PharmacyEntryDraft {

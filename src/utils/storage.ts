@@ -1,4 +1,13 @@
-import { DEFAULT_SETTINGS, STORAGE_KEYS, type PharmacyEntry, type PharmacySettings } from "@/utils/pharmacy";
+import {
+  DEFAULT_SETTINGS,
+  STORAGE_KEYS,
+  normalizeEntries,
+  normalizeMonthlyMetaRecord,
+  normalizeSettings,
+  type PharmacyEntry,
+  type PharmacyMonthlyMetaRecord,
+  type PharmacySettings,
+} from "@/utils/pharmacy";
 
 function isBrowser() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
@@ -14,20 +23,8 @@ export function loadSettings() {
     const parsed = JSON.parse(raw) as Partial<PharmacySettings> & {
       monthlyFixedCost?: number;
     };
-    const migratedTotal = Number(parsed.monthlyFixedCost ?? DEFAULT_SETTINGS.otherFixedCost);
 
-    return {
-      laborCost: Number(parsed.laborCost ?? 0),
-      rentManagementCost: Number(parsed.rentManagementCost ?? 0),
-      otherFixedCost: Number(parsed.otherFixedCost ?? migratedTotal),
-      extraFixedCosts: Array.isArray(parsed.extraFixedCosts)
-        ? parsed.extraFixedCosts.map((item) => ({
-            id: String(item.id),
-            label: String(item.label ?? ""),
-            amount: Number(item.amount ?? 0),
-          }))
-        : [],
-    };
+    return normalizeSettings(parsed);
   } catch {
     return DEFAULT_SETTINGS;
   }
@@ -44,19 +41,7 @@ export function loadEntries() {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEYS.entries);
     if (!raw) return [] as PharmacyEntry[];
-
-    const parsed = JSON.parse(raw) as PharmacyEntry[];
-    if (!Array.isArray(parsed)) return [] as PharmacyEntry[];
-
-    return parsed
-      .filter((entry) => entry && typeof entry.date === "string")
-      .map((entry) => ({
-        ...entry,
-        dispensingFee: Number(entry.dispensingFee || 0),
-        otcSales: Number(entry.otcSales || 0),
-        otcProfit: Number(entry.otcProfit || 0),
-        prescriptionCount: entry.prescriptionCount ? Number(entry.prescriptionCount) : undefined,
-      }));
+    return normalizeEntries(JSON.parse(raw));
   } catch {
     return [] as PharmacyEntry[];
   }
@@ -65,4 +50,22 @@ export function loadEntries() {
 export function saveEntries(entries: PharmacyEntry[]) {
   if (!isBrowser()) return;
   window.localStorage.setItem(STORAGE_KEYS.entries, JSON.stringify(entries));
+}
+
+export function loadMonthlyMeta() {
+  if (!isBrowser()) return {} as PharmacyMonthlyMetaRecord;
+
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEYS.monthlyMeta);
+    if (!raw) return {} as PharmacyMonthlyMetaRecord;
+
+    return normalizeMonthlyMetaRecord(JSON.parse(raw));
+  } catch {
+    return {} as PharmacyMonthlyMetaRecord;
+  }
+}
+
+export function saveMonthlyMeta(monthlyMetaByMonth: PharmacyMonthlyMetaRecord) {
+  if (!isBrowser()) return;
+  window.localStorage.setItem(STORAGE_KEYS.monthlyMeta, JSON.stringify(monthlyMetaByMonth));
 }
