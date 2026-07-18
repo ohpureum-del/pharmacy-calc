@@ -5,7 +5,7 @@ import { formatCurrency, getMonthlyFixedCost, type FixedCostItem, type PharmacyS
 type SettingsPanelProps = {
   settings: PharmacySettings;
   onSave: (settings: PharmacySettings) => void;
-  onBackup: () => void;
+  onBackup: () => Promise<void> | void;
   onRestore: (file: File) => Promise<void>;
 };
 
@@ -29,7 +29,8 @@ export default function SettingsPanel({ settings, onSave, onBackup, onRestore }:
   const [otherFixedCost, setOtherFixedCost] = useState(settings.otherFixedCost);
   const [extraFixedCosts, setExtraFixedCosts] = useState<FixedCostItem[]>(settings.extraFixedCosts);
   const [pendingExtraFixedCosts, setPendingExtraFixedCosts] = useState<FixedCostItem[]>([]);
-  const [restoreMessage, setRestoreMessage] = useState<string | null>(null);
+  const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+  const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -115,7 +116,57 @@ export default function SettingsPanel({ settings, onSave, onBackup, onRestore }:
     confirmPendingExtraFixedCost(targetId);
   };
 
+  const handleBackupClick = async () => {
+    setIsBackingUp(true);
+    setFeedbackMessage(null);
+
+    try {
+      await onBackup();
+      setFeedbackMessage("백업 파일 저장 창이 열렸습니다. `budjet` 폴더를 선택해 저장해 주세요.");
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+      setFeedbackMessage(error instanceof Error ? error.message : "백업 파일 저장을 완료하지 못했습니다.");
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
   const handleClickRestore = () => {
+    if (window.showOpenFilePicker) {
+      void (async () => {
+        setIsRestoring(true);
+        setFeedbackMessage(null);
+
+        try {
+          const [fileHandle] = await window.showOpenFilePicker({
+            id: "pharmacy-backup-open",
+            types: [
+              {
+                description: "약국 경영정산 백업 파일",
+                accept: {
+                  "application/json": [".json"],
+                },
+              },
+            ],
+          });
+
+          const file = await fileHandle.getFile();
+          await onRestore(file);
+          setFeedbackMessage("선택한 백업 파일을 불러왔습니다.");
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") {
+            return;
+          }
+          setFeedbackMessage(error instanceof Error ? error.message : "백업 파일을 불러오지 못했습니다.");
+        } finally {
+          setIsRestoring(false);
+        }
+      })();
+      return;
+    }
+
     restoreInputRef.current?.click();
   };
 
@@ -124,13 +175,13 @@ export default function SettingsPanel({ settings, onSave, onBackup, onRestore }:
     if (!file) return;
 
     setIsRestoring(true);
-    setRestoreMessage(null);
+    setFeedbackMessage(null);
 
     try {
       await onRestore(file);
-      setRestoreMessage("백업 데이터를 불러왔습니다.");
+      setFeedbackMessage("백업 데이터를 불러왔습니다.");
     } catch (error) {
-      setRestoreMessage(error instanceof Error ? error.message : "백업 파일을 불러오지 못했습니다.");
+      setFeedbackMessage(error instanceof Error ? error.message : "백업 파일을 불러오지 못했습니다.");
     } finally {
       event.target.value = "";
       setIsRestoring(false);
@@ -245,11 +296,12 @@ export default function SettingsPanel({ settings, onSave, onBackup, onRestore }:
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={onBackup}
+              onClick={() => void handleBackupClick()}
+              disabled={isBackingUp}
               className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 text-xs font-medium text-slate-700 transition hover:border-teal-300 hover:bg-teal-50 hover:text-teal-700"
             >
               <Download className="h-4 w-4" />
-              백업 저장
+              {isBackingUp ? "저장 준비 중..." : "백업 저장"}
             </button>
             <button
               type="button"
@@ -269,7 +321,7 @@ export default function SettingsPanel({ settings, onSave, onBackup, onRestore }:
           onChange={handleRestoreFileChange}
           className="hidden"
         />
-        {restoreMessage ? <p className="mt-2 text-[11px] font-medium text-slate-600">{restoreMessage}</p> : null}
+        {feedbackMessage ? <p className="mt-2 text-[11px] font-medium text-slate-600">{feedbackMessage}</p> : null}
       </div>
     </section>
   );

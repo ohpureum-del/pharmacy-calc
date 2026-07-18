@@ -1,3 +1,4 @@
+import { AppWindow } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import CelebrationOverlay from "@/components/CelebrationOverlay";
 import EntriesTable from "@/components/EntriesTable";
@@ -42,6 +43,8 @@ export default function Home() {
   const [selectedMonth, setSelectedMonth] = useState(currentMonth);
   const [selectedFinanceMonth, setSelectedFinanceMonth] = useState(currentMonth);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [installPromptEvent, setInstallPromptEvent] = useState<BeforeInstallPromptEvent | null>(null);
+  const [isInstalledApp, setIsInstalledApp] = useState(false);
 
   useEffect(() => {
     initialize();
@@ -53,6 +56,32 @@ export default function Home() {
     const timer = window.setTimeout(() => setShowCelebration(false), 2800);
     return () => window.clearTimeout(timer);
   }, [celebrationTick]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(display-mode: standalone)");
+    const updateInstallState = () => setIsInstalledApp(media.matches);
+    updateInstallState();
+
+    const handleBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setInstallPromptEvent(event as BeforeInstallPromptEvent);
+    };
+
+    const handleAppInstalled = () => {
+      setIsInstalledApp(true);
+      setInstallPromptEvent(null);
+    };
+
+    media.addEventListener("change", updateInstallState);
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    return () => {
+      media.removeEventListener("change", updateInstallState);
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, []);
 
   const monthSummary = useMemo(
     () => calculateMonthSummary(entries, settings, currentMonth),
@@ -71,13 +100,36 @@ export default function Home() {
     updateMonthlyMeta(month, nextMeta);
   };
 
-  const handleBackup = () => {
+  const handleBackup = async () => {
     const backup = exportBackup();
-    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json;charset=utf-8" });
+    const fileName = `약국-경영정산-백업-${today}.json`;
+    const backupText = JSON.stringify(backup, null, 2);
+
+    if (window.showSaveFilePicker) {
+      const fileHandle = await window.showSaveFilePicker({
+        id: "pharmacy-backup-save",
+        suggestedName: fileName,
+        types: [
+          {
+            description: "약국 경영정산 백업 파일",
+            accept: {
+              "application/json": [".json"],
+            },
+          },
+        ],
+      });
+
+      const writable = await fileHandle.createWritable();
+      await writable.write(backupText);
+      await writable.close();
+      return;
+    }
+
+    const blob = new Blob([backupText], { type: "application/json;charset=utf-8" });
     const url = window.URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `약국-경영정산-백업-${today}.json`;
+    link.download = fileName;
     link.click();
     window.URL.revokeObjectURL(url);
   };
@@ -101,6 +153,17 @@ export default function Home() {
     setEditingId(null);
     setSelectedMonth(currentMonth);
     setSelectedFinanceMonth(currentMonth);
+  };
+
+  const handleInstallApp = async () => {
+    if (!installPromptEvent) return;
+
+    await installPromptEvent.prompt();
+    const choice = await installPromptEvent.userChoice;
+
+    if (choice.outcome === "accepted") {
+      setInstallPromptEvent(null);
+    }
   };
 
   const syncDraftForDate = (date: string) => {
@@ -192,6 +255,24 @@ export default function Home() {
             <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">
               조제료와 일반약 순이익만으로 진짜 남는 돈을 계산하고, 월 고정비를 얼마나 채웠는지 한 화면에서 확인하세요.
             </p>
+            <div className="mt-4 flex flex-wrap items-center gap-2.5">
+              {installPromptEvent && !isInstalledApp ? (
+                <button
+                  type="button"
+                  onClick={() => void handleInstallApp()}
+                  className="inline-flex items-center gap-2 rounded-2xl border border-teal-200 bg-teal-50 px-3.5 py-2 text-xs font-semibold text-teal-700 transition hover:border-teal-300 hover:bg-teal-100"
+                >
+                  <AppWindow className="h-4 w-4" />
+                  바탕화면 앱으로 설치
+                </button>
+              ) : (
+                <div className="rounded-2xl border border-slate-200 bg-white/90 px-3.5 py-2 text-[11px] font-medium text-slate-600">
+                  {isInstalledApp
+                    ? "이미 바탕화면 앱으로 설치된 상태입니다."
+                    : "설치 버튼이 안 보이면 Edge/Chrome 메뉴에서 `앱 설치` 또는 `바탕화면에 추가`를 눌러 주세요."}
+                </div>
+              )}
+            </div>
           </div>
 
           <section className="mt-6 rounded-[28px] border border-slate-200/80 bg-white/90 p-5 shadow-xl shadow-slate-900/5 backdrop-blur">
